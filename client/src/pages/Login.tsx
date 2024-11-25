@@ -14,22 +14,24 @@ export default function Login() {
     setError('');
 
     try {
-      const res = await fetch('http://localhost:5000/api/auth/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials)
+        body: JSON.stringify(credentials),
+        credentials: 'include'
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        login(data.token);
-        navigate('/');
-      } else {
-        setError(data.error || 'Login failed');
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Login failed');
       }
+
+      const data = await res.json();
+      login(data.token);
+      navigate('/');
     } catch (error) {
-      setError('Network error. Please try again.');
+      setError(error instanceof Error ? error.message : 'Login failed');
+      console.error('Login error:', error);
     }
   };
 
@@ -38,7 +40,7 @@ export default function Login() {
       <Card sx={{ minWidth: 300, maxWidth: 400, width: '100%', m: 2 }}>
         <CardContent sx={{ p: 3 }}>
           <Typography variant="h5" gutterBottom align="center">
-            Timekeeping Login
+            ZAFinance Login
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>

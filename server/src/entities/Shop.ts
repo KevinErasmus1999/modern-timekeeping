@@ -10,7 +10,7 @@ export class Shop {
     name!: string;
 
     @Column({ nullable: true })
-    address?: string;
+    address!: string;
 
     @Column({ default: true })
     isActive!: boolean;

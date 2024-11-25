@@ -1,60 +1,37 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { AppDataSource } from '../database';
 import { User } from '../entities/User';
 
 const router = Router();
-const userRepository = AppDataSource.getRepository(User);
 
-const register = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const { email, password, role } = req.body;
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const user = userRepository.create({
-            email,
-            password: hashedPassword,
-            role: role || 'user'
-        });
-
-        await userRepository.save(user);
-        res.status(201).json({ message: 'User registered successfully' });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error' });
-    }
-};
-
-const login = async (req: Request, res: Response): Promise<void> => {
+router.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
+        const userRepository = AppDataSource.getRepository(User);
         const user = await userRepository.findOne({ where: { email } });
 
         if (!user) {
-            res.status(401).json({ error: 'Invalid credentials' });
-            return;
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
-            res.status(401).json({ error: 'Invalid credentials' });
-            return;
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         const token = jwt.sign(
             { userId: user.id, role: user.role },
-            process.env.JWT_SECRET!,
-            { expiresIn: process.env.JWT_EXPIRY }
+            process.env.JWT_SECRET || 'default-secret',
+            { expiresIn: process.env.JWT_EXPIRY || '24h' }
         );
 
-        res.json({ token });
+        return res.status(200).json({ token });
     } catch (error) {
-        res.status(500).json({ error: 'Server error' });
+        console.error('Login error:', error);
+        return res.status(500).json({ error: 'Server error' });
     }
-};
-
-router.post('/register', register);
-router.post('/login', login);
+});
 
 export default router;

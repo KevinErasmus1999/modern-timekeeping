@@ -14,9 +14,22 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField
+  TextField,
+  Alert,
+  IconButton,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+
+interface Employee {
+  id: number;
+  name: string;
+  hourlyRate: number;
+  isActive: boolean;
+}
 
 interface Shop {
   id: number;
@@ -24,16 +37,28 @@ interface Shop {
   address: string;
   employeeCount: number;
   isActive: boolean;
+  employees?: Employee[];
 }
+
+interface FormData {
+  name: string;
+  address: string;
+  isActive: boolean;
+}
+
+const initialFormData: FormData = {
+  name: '',
+  address: '',
+  isActive: true
+};
 
 export default function Shops() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState({
-    name: '',
-    address: ''
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [editingShop, setEditingShop] = useState<Shop | null>(null);
+  const [formData, setFormData] = useState<FormData>(initialFormData);
 
   useEffect(() => {
     fetchShops();
@@ -41,152 +66,175 @@ export default function Shops() {
 
   const fetchShops = async () => {
     try {
+      setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/shops', {
+
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch('/api/shops', {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       setShops(data);
-      setLoading(false);
+      setError(null);
     } catch (error) {
-      console.error('Failed to fetch shops:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch shops');
+    } finally {
       setLoading(false);
     }
   };
 
   const handleSubmit = async () => {
     try {
+      if (!formData.name.trim()) {
+        setError('Shop name is required');
+        return;
+      }
+
       const token = localStorage.getItem('token');
-      await fetch('http://localhost:5000/api/shops', {
-        method: 'POST',
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const url = editingShop
+        ? `/api/shops/${editingShop.id}`
+        : '/api/shops';
+
+      const response = await fetch(url, {
+        method: editingShop ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(formData)
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to save shop');
+      }
+
       setOpen(false);
-      setFormData({ name: '', address: '' });
-      fetchShops();
+      setEditingShop(null);
+      setFormData(initialFormData);
+      await fetchShops();
+      setError(null);
     } catch (error) {
-      console.error('Failed to add shop:', error);
+      setError(error instanceof Error ? error.message : 'Failed to save shop');
+    }
+  };
+
+  const handleEdit = (shop: Shop) => {
+    setEditingShop(shop);
+    setFormData({
+      name: shop.name,
+      address: shop.address || '',
+      isActive: shop.isActive
+    });
+    setOpen(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this shop?')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`/api/shops/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete shop');
+      }
+
+      await fetchShops();
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete shop');
     }
   };
 
   return (
     <Box sx={{ width: '100%' }}>
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mb: 4
-        }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 500 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 4
+      }}>
+        <Typography variant="h5" fontWeight={500}>
           Shops
         </Typography>
         <Button
           variant="contained"
-          size="small"
           startIcon={<AddIcon />}
-          onClick={() => setOpen(true)}
-          sx={{
-            textTransform: 'none',
-            px: 2,
-            py: 1,
-            boxShadow: 'none',
-            '&:hover': {
-              boxShadow: 'none',
-            }
+          onClick={() => {
+            setEditingShop(null);
+            setFormData(initialFormData);
+            setOpen(true);
           }}
         >
           Add Shop
         </Button>
       </Box>
 
-      <TableContainer
-        component={Paper}
-        sx={{
-          boxShadow: 'none',
-          border: '1px solid',
-          borderColor: 'divider'
-        }}
-      >
+      <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '30%'
-                }}
-              >
-                Name
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '40%'
-                }}
-              >
-                Address
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '15%'
-                }}
-              >
-                Employees
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '15%'
-                }}
-              >
-                Status
-              </TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Address</TableCell>
+              <TableCell>Employees</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} sx={{ textAlign: 'center', py: 8 }}>
-                  Loading...
-                </TableCell>
+                <TableCell colSpan={5} align="center">Loading...</TableCell>
               </TableRow>
             ) : shops.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} sx={{ textAlign: 'center', py: 8 }}>
-                  <Typography color="textSecondary">
-                    No shops found. Add your first shop to get started.
-                  </Typography>
+                <TableCell colSpan={5} align="center">
+                  No shops found. Add your first shop to get started.
                 </TableCell>
               </TableRow>
             ) : (
               shops.map((shop) => (
-                <TableRow
-                  key={shop.id}
-                  sx={{
-                    '&:last-child td': { border: 0 },
-                    '&:hover': { backgroundColor: 'action.hover' },
-                  }}
-                >
+                <TableRow key={shop.id}>
                   <TableCell>{shop.name}</TableCell>
                   <TableCell>{shop.address}</TableCell>
-                  <TableCell>{shop.employeeCount}</TableCell>
+                  <TableCell>{shop.employeeCount || 0}</TableCell>
                   <TableCell>
                     <Box
                       sx={{
@@ -196,11 +244,26 @@ export default function Shops() {
                         py: 0.5,
                         borderRadius: 1,
                         display: 'inline-block',
-                        fontSize: '0.875rem',
                       }}
                     >
                       {shop.isActive ? 'Active' : 'Inactive'}
                     </Box>
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton
+                      onClick={() => handleEdit(shop)}
+                      size="small"
+                      sx={{ mr: 1 }}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      onClick={() => handleDelete(shop.id)}
+                      size="small"
+                      color="error"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
               ))
@@ -211,16 +274,23 @@ export default function Shops() {
 
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          setEditingShop(null);
+          setFormData(initialFormData);
+        }}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Add New Shop</DialogTitle>
+        <DialogTitle>
+          {editingShop ? 'Edit Shop' : 'Add New Shop'}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
               label="Shop Name"
               fullWidth
+              required
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
@@ -232,27 +302,29 @@ export default function Shops() {
               value={formData.address}
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formData.isActive}
+                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                />
+              }
+              label="Active"
+            />
           </Box>
         </DialogContent>
         <DialogActions>
           <Button
-            onClick={() => setOpen(false)}
-            sx={{ textTransform: 'none' }}
+            onClick={() => {
+              setOpen(false);
+              setEditingShop(null);
+              setFormData(initialFormData);
+            }}
           >
             Cancel
           </Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            sx={{
-              textTransform: 'none',
-              boxShadow: 'none',
-              '&:hover': {
-                boxShadow: 'none',
-              }
-            }}
-          >
-            Add Shop
+          <Button variant="contained" onClick={handleSubmit}>
+            {editingShop ? 'Update' : 'Add'} Shop
           </Button>
         </DialogActions>
       </Dialog>

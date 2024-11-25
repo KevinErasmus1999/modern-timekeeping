@@ -1,142 +1,117 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { AppDataSource } from '../database';
 import { Employee } from '../entities/Employee';
 import { TimeEntry } from '../entities/TimeEntry';
 import { Shop } from '../entities/Shop';
-import { Between, MoreThanOrEqual } from 'typeorm';
+import { Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { auth } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', auth, async (req: Request, res: Response) => {
+router.get('/', auth, async (req, res) => {
     try {
-        const { range = 'week' } = req.query;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const { range = 'month' } = req.query;
+        const now = new Date();
+        let startDate = new Date();
 
-        // Calculate start date based on range
-        const startDate = new Date(today);
+        // Calculate date range
         switch (range) {
             case 'week':
-                startDate.setDate(today.getDate() - 7);
+                startDate.setDate(now.getDate() - 7);
                 break;
             case 'month':
-                startDate.setMonth(today.getMonth() - 1);
+                startDate.setMonth(now.getMonth() - 1);
+                break;
+            case 'quarter':
+                startDate.setMonth(now.getMonth() - 3);
                 break;
             case 'year':
-                startDate.setFullYear(today.getFullYear() - 1);
+                startDate.setFullYear(now.getFullYear() - 1);
                 break;
             default:
-                startDate.setDate(today.getDate() - 7);
+                startDate.setMonth(now.getMonth() - 1);
         }
 
-        // Get base repositories
-        const employeeRepo = AppDataSource.getRepository(Employee);
-        const timeEntryRepo = AppDataSource.getRepository(TimeEntry);
-        const shopRepo = AppDataSource.getRepository(Shop);
-
-        // Get basic stats
         const [
-            totalEmployees,
-            activeEmployees,
-            totalShops,
-            todayEntries,
-            rangeEntries
+            employees,
+            shops,
+            timeEntries,
+            documents
         ] = await Promise.all([
-            employeeRepo.count(),
-            employeeRepo.count({ where: { isActive: true } }),
-            shopRepo.count(),
-            timeEntryRepo.find({
+            AppDataSource.getRepository(Employee).find({ relations: ['shop'] }),
+            AppDataSource.getRepository(Shop).find(),
+            AppDataSource.getRepository(TimeEntry).find({
                 where: {
-                    clockIn: MoreThanOrEqual(today)
+                    clockIn: Between(startDate, now)
                 },
-                relations: ['employee']
+                relations: ['employee', 'employee.shop']
             }),
-            timeEntryRepo.find({
-                where: {
-                    clockIn: Between(startDate, new Date())
-                },
-                relations: ['employee'],
-                order: {
-                    clockIn: 'ASC'
-                }
-            })
+            // Assuming you have a Document entity or using the documents field from Employee
+            AppDataSource.getRepository(Employee)
+                .createQueryBuilder('employee')
+                .where('employee.documents IS NOT NULL')
+                .orderBy('employee.updatedAt', 'DESC')
+                .take(8)
+                .getMany()
         ]);
 
-        // Calculate today's stats
-        const todayStats = todayEntries.reduce((acc, entry) => {
-            const clockOut = entry.clockOut || new Date();
-            const hours = (clockOut.getTime() - entry.clockIn.getTime()) / (1000 * 60 * 60);
-            const earnings = hours * entry.employee.hourlyRate;
+        // Calculate attendance for today
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const todayEntries = timeEntries.filter(entry =>
+            entry.clockIn >= todayStart && entry.clockIn <= todayEnd
+        );
+
+        const attendanceStats = {
+            present: new Set(todayEntries.map(entry => entry.employee.id)).size,
+            absent: employees.length - new Set(todayEntries.map(entry => entry.employee.id)).size,
+            late: todayEntries.filter(entry => {
+                const clockInHour = new Date(entry.clockIn).getHours();
+                return clockInHour >= 9; // Assuming 9 AM is the start time
+            }).length
+        };
+
+        // Calculate shop performance
+        const shopPerformance = shops.map(shop => {
+            const shopEmployees = employees.filter(emp => emp.shopId === shop.id);
+            const shopEntries = timeEntries.filter(entry => entry.employee.shopId === shop.id);
+
+            const totalHours = shopEntries.reduce((sum, entry) => {
+                const clockOut = entry.clockOut || new Date();
+                const hours = (clockOut.getTime() - entry.clockIn.getTime()) / (1000 * 60 * 60);
+                return sum + hours;
+            }, 0);
+
             return {
-                hours: acc.hours + hours,
-                earnings: acc.earnings + earnings
+                shopName: shop.name,
+                totalHours: Math.round(totalHours),
+                employeeCount: shopEmployees.length,
+                averageRate: shopEmployees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / shopEmployees.length || 0
             };
-        }, { hours: 0, earnings: 0 });
-
-        // Calculate average hourly rate
-        const employees = await employeeRepo.find();
-        const averageHourlyRate = employees.reduce((acc, emp) => acc + emp.hourlyRate, 0) /
-            (employees.length || 1);
-
-        // Process time entries by date
-        const timeEntriesByDate = new Map();
-        rangeEntries.forEach(entry => {
-            const date = entry.clockIn.toISOString().split('T')[0];
-            const clockOut = entry.clockOut || new Date();
-            const hours = (clockOut.getTime() - entry.clockIn.getTime()) / (1000 * 60 * 60);
-            const earnings = hours * entry.employee.hourlyRate;
-
-            if (timeEntriesByDate.has(date)) {
-                const existing = timeEntriesByDate.get(date);
-                timeEntriesByDate.set(date, {
-                    date,
-                    hours: existing.hours + hours,
-                    earnings: existing.earnings + earnings
-                });
-            } else {
-                timeEntriesByDate.set(date, { date, hours, earnings });
-            }
         });
 
-        // Get top performing employees
-        const employeePerformance = new Map();
-        rangeEntries.forEach(entry => {
-            const clockOut = entry.clockOut || new Date();
-            const hours = (clockOut.getTime() - entry.clockIn.getTime()) / (1000 * 60 * 60);
-            const earnings = hours * entry.employee.hourlyRate;
-
-            if (employeePerformance.has(entry.employee.id)) {
-                const existing = employeePerformance.get(entry.employee.id);
-                employeePerformance.set(entry.employee.id, {
-                    name: entry.employee.name,
-                    hours: existing.hours + hours,
-                    earnings: existing.earnings + earnings
-                });
-            } else {
-                employeePerformance.set(entry.employee.id, {
-                    name: entry.employee.name,
-                    hours,
-                    earnings
-                });
-            }
-        });
-
-        const topEmployees = Array.from(employeePerformance.values())
-            .sort((a, b) => b.hours - a.hours)
-            .slice(0, 5);
+        // Format recent documents
+        const recentDocuments = documents.map(emp => ({
+            employeeName: `${emp.name} ${emp.surname}`,
+            documentType: 'Employee Document', // You might want to store document types
+            uploadDate: emp.updatedAt
+        }));
 
         res.json({
-            stats: {
-                totalEmployees,
-                activeEmployees,
-                totalShops,
-                totalHoursToday: todayStats.hours,
-                totalEarningsToday: todayStats.earnings,
-                averageHourlyRate
-            },
-            timeEntries: Array.from(timeEntriesByDate.values()),
-            topEmployees
+            totalEmployees: employees.length,
+            activeEmployees: employees.filter(emp => emp.isActive).length,
+            totalShops: shops.length,
+            averageHourlyRate: employees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / employees.length,
+            employeesByShop: shops.map(shop => ({
+                shopName: shop.name,
+                employeeCount: employees.filter(emp => emp.shopId === shop.id).length
+            })),
+            attendanceStats,
+            shopPerformance,
+            recentDocuments
         });
 
     } catch (error) {

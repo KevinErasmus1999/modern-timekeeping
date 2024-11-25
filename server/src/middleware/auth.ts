@@ -1,23 +1,26 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-interface JwtPayload {
+interface DecodedToken {
     userId: number;
     role: string;
 }
 
-export const auth = (req: Request, res: Response, next: NextFunction) => {
+export const auth = (req: Request, res: Response, next: NextFunction): void => {
     try {
-        const token = req.header('Authorization')?.replace('Bearer ', '');
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.split(' ')[1];
 
         if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
+            res.status(401).json({ error: 'Authentication required' });
+            return;
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
-        req.user = decoded;
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret') as DecodedToken;
+        req.user = { userId: decoded.userId, role: decoded.role };
         next();
     } catch (error) {
-        res.status(401).json({ error: 'Authentication failed' });
+        res.status(401).json({ error: 'Invalid token' });
+        return;
     }
 };

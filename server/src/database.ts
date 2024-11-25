@@ -1,14 +1,45 @@
 import { DataSource } from "typeorm";
-import path from "path";
 import { User } from "./entities/User";
 import { Employee } from "./entities/Employee";
 import { TimeEntry } from "./entities/TimeEntry";
-require('dotenv').config();
+import { Shop } from "./entities/Shop";
+import path from "path";
+import bcrypt from 'bcrypt';
 
 export const AppDataSource = new DataSource({
     type: "sqlite",
-    database: path.join(__dirname, "../database.sqlite"),
-    entities: [User, Employee, TimeEntry],
+    database: path.join(__dirname, "..", "database.sqlite"),
     synchronize: true,
-    logging: true
+    logging: true,
+    entities: [User, Employee, TimeEntry, Shop],
+    migrations: [path.join(__dirname, "migrations", "*.{ts,js}")],
 });
+
+export const initializeDatabase = async (): Promise<boolean> => {
+    try {
+        if (!AppDataSource.isInitialized) {
+            await AppDataSource.initialize();
+
+            // Check and create admin user
+            const userRepo = AppDataSource.getRepository(User);
+            let adminUser = await userRepo.findOne({
+                where: { email: 'kevin@cybercorelabs.co.za' }
+            });
+
+            if (!adminUser) {
+                const hashedPassword = await bcrypt.hash('990309@Kevin', 10);
+                adminUser = userRepo.create({
+                    email: 'kevin@cybercorelabs.co.za',
+                    password: hashedPassword,
+                    role: 'admin'
+                });
+                await userRepo.save(adminUser);
+                console.log('Admin user created successfully');
+            }
+        }
+        return true;
+    } catch (error) {
+        console.error("Database initialization error:", error);
+        return false;
+    }
+};
