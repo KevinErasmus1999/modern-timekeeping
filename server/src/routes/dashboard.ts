@@ -3,115 +3,99 @@ import { AppDataSource } from '../database';
 import { Employee } from '../entities/Employee';
 import { TimeEntry } from '../entities/TimeEntry';
 import { Shop } from '../entities/Shop';
-import { Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { auth } from '../middleware/auth';
+import { IsNull } from 'typeorm';
 
 const router = Router();
 
 router.get('/', auth, async (req, res) => {
     try {
-        const { range = 'month' } = req.query;
-        const now = new Date();
-        let startDate = new Date();
-
-        // Calculate date range
-        switch (range) {
-            case 'week':
-                startDate.setDate(now.getDate() - 7);
-                break;
-            case 'month':
-                startDate.setMonth(now.getMonth() - 1);
-                break;
-            case 'quarter':
-                startDate.setMonth(now.getMonth() - 3);
-                break;
-            case 'year':
-                startDate.setFullYear(now.getFullYear() - 1);
-                break;
-            default:
-                startDate.setMonth(now.getMonth() - 1);
-        }
-
-        const [
-            employees,
-            shops,
-            timeEntries,
-            documents
-        ] = await Promise.all([
-            AppDataSource.getRepository(Employee).find({ relations: ['shop'] }),
+        const [shops, employees, timeEntries] = await Promise.all([
             AppDataSource.getRepository(Shop).find(),
+            AppDataSource.getRepository(Employee).find({ relations: ['shop'] }),
             AppDataSource.getRepository(TimeEntry).find({
-                where: {
-                    clockIn: Between(startDate, now)
-                },
-                relations: ['employee', 'employee.shop']
-            }),
-            // Assuming you have a Document entity or using the documents field from Employee
-            AppDataSource.getRepository(Employee)
-                .createQueryBuilder('employee')
-                .where('employee.documents IS NOT NULL')
-                .orderBy('employee.updatedAt', 'DESC')
-                .take(8)
-                .getMany()
+                where: { clockOut: IsNull() },
+                relations: ['employee']
+            })
         ]);
 
-        // Calculate attendance for today
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const todayEntries = timeEntries.filter(entry =>
-            entry.clockIn >= todayStart && entry.clockIn <= todayEnd
-        );
-
-        const attendanceStats = {
-            present: new Set(todayEntries.map(entry => entry.employee.id)).size,
-            absent: employees.length - new Set(todayEntries.map(entry => entry.employee.id)).size,
-            late: todayEntries.filter(entry => {
-                const clockInHour = new Date(entry.clockIn).getHours();
-                return clockInHour >= 9; // Assuming 9 AM is the start time
-            }).length
-        };
-
-        // Calculate shop performance
-        const shopPerformance = shops.map(shop => {
+        // Calculate shop statistics
+        const shopStats = await Promise.all(shops.map(async (shop) => {
             const shopEmployees = employees.filter(emp => emp.shopId === shop.id);
-            const shopEntries = timeEntries.filter(entry => entry.employee.shopId === shop.id);
+            const clockedInEmployees = timeEntries.filter(entry =>
+                shopEmployees.some(emp => emp.id === entry.employee.id)
+            );
 
-            const totalHours = shopEntries.reduce((sum, entry) => {
-                const clockOut = entry.clockOut || new Date();
-                const hours = (clockOut.getTime() - entry.clockIn.getTime()) / (1000 * 60 * 60);
-                return sum + hours;
-            }, 0);
+            // Get monthly hours using query builder
+            const monthlyHours = await AppDataSource
+                .createQueryBuilder()
+                .select([
+                    "DATE(timeEntry.clockIn) as date",
+                    "COUNT(DISTINCT employee.id) as employeeCount",
+                    "SUM(CASE WHEN timeEntry.clockOut IS NOT NULL THEN ROUND((julianday(timeEntry.clockOut) - julianday(timeEntry.clockIn)) * 24, 2) ELSE 0 END) as hours",
+                    "SUM(timeEntry.earnings) as wages"
+                ])
+                .from(TimeEntry, "timeEntry")
+                .leftJoin("timeEntry.employee", "employee")
+                .where("employee.shopId = :shopId", { shopId: shop.id })
+                .andWhere("timeEntry.clockIn >= :startDate", {
+                    startDate: new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+                })
+                .groupBy("DATE(timeEntry.clockIn)")
+                .getRawMany();
+
+            const averageWage = shopEmployees.length > 0
+                ? Number((shopEmployees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / shopEmployees.length).toFixed(2))
+                : 0;
 
             return {
-                shopName: shop.name,
-                totalHours: Math.round(totalHours),
-                employeeCount: shopEmployees.length,
-                averageRate: shopEmployees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / shopEmployees.length || 0
+                id: shop.id,
+                name: shop.name,
+                totalEmployees: shopEmployees.length,
+                clockedInEmployees: clockedInEmployees.length,
+                averageWage,
+                monthlyHours: monthlyHours.map(mh => ({
+                    date: mh.date,
+                    hours: Number(mh.hours) || 0,
+                    wages: Number(mh.wages) || 0,
+                    employeeCount: Number(mh.employeeCount)
+                }))
             };
-        });
-
-        // Format recent documents
-        const recentDocuments = documents.map(emp => ({
-            employeeName: `${emp.name} ${emp.surname}`,
-            documentType: 'Employee Document', // You might want to store document types
-            uploadDate: emp.updatedAt
         }));
 
-        res.json({
-            totalEmployees: employees.length,
-            activeEmployees: employees.filter(emp => emp.isActive).length,
+        // Calculate wage distribution
+        const wageRanges = [
+            { min: 0, max: 50, label: 'R0-R50' },
+            { min: 50, max: 100, label: 'R50-R100' },
+            { min: 100, max: 150, label: 'R100-R150' },
+            { min: 150, max: 200, label: 'R150-R200' },
+            { min: 200, max: null, label: 'R200+' }
+        ];
+
+        const wageDistribution = wageRanges.map(({ min, max, label }) => ({
+            range: label,
+            count: employees.filter(emp =>
+                max ? (emp.hourlyRate >= min && emp.hourlyRate < max) : emp.hourlyRate >= min
+            ).length
+        }));
+
+        // Calculate overall statistics
+        const overallStats = {
             totalShops: shops.length,
-            averageHourlyRate: employees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / employees.length,
-            employeesByShop: shops.map(shop => ({
-                shopName: shop.name,
-                employeeCount: employees.filter(emp => emp.shopId === shop.id).length
-            })),
-            attendanceStats,
-            shopPerformance,
-            recentDocuments
+            totalEmployees: employees.length,
+            clockedInEmployees: timeEntries.length,
+            averageHourlyWage: employees.length > 0
+                ? Number((employees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / employees.length).toFixed(2))
+                : 0
+        };
+
+        res.json({
+            shops: shopStats,
+            overallStats,
+            wageDistribution
         });
 
     } catch (error) {

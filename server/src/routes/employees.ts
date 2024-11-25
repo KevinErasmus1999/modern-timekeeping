@@ -193,4 +193,27 @@ router.delete('/:id', auth, async (req: Request, res: Response) => {
     }
 });
 
+router.put('/:id/assign-shop', auth, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { shopId } = req.body;
+
+        const employee = await employeeRepo.findOne({
+            where: { id: parseInt(id) }
+        });
+
+        if (!employee) {
+            return res.status(404).json({ error: 'Employee not found' });
+        }
+
+        employee.shopId = shopId || null;
+        await employeeRepo.save(employee);
+
+        res.json({ message: 'Shop assigned successfully' });
+    } catch (error) {
+        console.error('Failed to assign shop:', error);
+        res.status(500).json({ error: 'Failed to assign shop' });
+    }
+});
+
 export default router;
