@@ -17,9 +17,11 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Alert
 } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
+import { Add as AddIcon, AccessTime } from '@mui/icons-material';
+import { differenceInMinutes, formatDistanceToNow } from 'date-fns';
 
 interface TimeEntry {
   id: number;
@@ -33,6 +35,9 @@ interface TimeEntry {
 interface Employee {
   id: number;
   name: string;
+  surname: string;
+  isActive: boolean;
+  hourlyRate: number;
 }
 
 export default function TimeEntries() {
@@ -41,209 +46,179 @@ export default function TimeEntries() {
   const [selectedEmployee, setSelectedEmployee] = useState<number>(0);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchTimeEntries();
-    fetchEmployees();
-  }, []);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchTimeEntries = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/time-entries', {
+      const response = await fetch('/api/time-entries', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
+
+      if (!response.ok) throw new Error('Failed to fetch time entries');
+
       const data = await response.json();
       setEntries(data);
-      setLoading(false);
     } catch (error) {
       console.error('Failed to fetch time entries:', error);
-      setLoading(false);
     }
   };
 
   const fetchEmployees = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/employees', {
+      const response = await fetch('/api/employees', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
+
+      if (!response.ok) throw new Error('Failed to fetch employees');
+
       const data = await response.json();
-      setEmployees(data);
+      setEmployees(data.filter((emp: Employee) => emp.isActive));
     } catch (error) {
       console.error('Failed to fetch employees:', error);
     }
   };
 
+  useEffect(() => {
+    Promise.all([fetchTimeEntries(), fetchEmployees()])
+      .finally(() => setLoading(false));
+
+    const interval = setInterval(fetchTimeEntries, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleClockIn = async () => {
     try {
+      if (!selectedEmployee) {
+        setError('Please select an employee');
+        return;
+      }
+
       const token = localStorage.getItem('token');
-      await fetch('http://localhost:5000/api/time-entries', {
+      const response = await fetch('/api/time-entries', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          employeeId: selectedEmployee,
-          clockIn: new Date().toISOString()
-        })
+        body: JSON.stringify({ employeeId: selectedEmployee })
       });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to clock in');
+      }
+
+      await fetchTimeEntries();
       setOpen(false);
       setSelectedEmployee(0);
-      fetchTimeEntries();
+      setError(null);
     } catch (error) {
-      console.error('Failed to clock in:', error);
+      setError(error instanceof Error ? error.message : 'Failed to clock in');
     }
   };
 
   const handleClockOut = async (id: number) => {
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:5000/api/time-entries/${id}/clock-out`, {
+      const response = await fetch(`/api/time-entries/${id}/clock-out`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      fetchTimeEntries();
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to clock out');
+      }
+
+      await fetchTimeEntries();
+      setError(null);
     } catch (error) {
-      console.error('Failed to clock out:', error);
+      setError(error instanceof Error ? error.message : 'Failed to clock out');
     }
   };
 
+  const formatDuration = (clockIn: string, clockOut: string | null) => {
+    const start = new Date(clockIn);
+    const end = clockOut ? new Date(clockOut) : new Date();
+    return formatDistanceToNow(start, { addSuffix: true });
+  };
+
+  const isAlreadyClockedIn = (employeeId: number) => {
+    return entries.some(entry => entry.employeeId === employeeId && !entry.clockOut);
+  };
+
   return (
-    <Box sx={{ width: '100%' }}>
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mb: 4
-        }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 500 }}>
+    <Box sx={{ p: 3 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 3
+      }}>
+        <Typography variant="h5" fontWeight="500">
           Time Entries
         </Typography>
         <Button
           variant="contained"
-          size="small"
           startIcon={<AddIcon />}
           onClick={() => setOpen(true)}
-          sx={{
-            textTransform: 'none',
-            px: 2,
-            py: 1,
-            boxShadow: 'none',
-            '&:hover': {
-              boxShadow: 'none',
-            }
-          }}
         >
           Clock In
         </Button>
       </Box>
 
-      <TableContainer
-        component={Paper}
-        sx={{
-          boxShadow: 'none',
-          border: '1px solid',
-          borderColor: 'divider'
-        }}
-      >
+      <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '25%'
-                }}
-              >
-                Employee
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '25%'
-                }}
-              >
-                Clock In
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '25%'
-                }}
-              >
-                Clock Out
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '15%'
-                }}
-              >
-                Earnings
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: 2,
-                  borderColor: 'primary.main',
-                  width: '10%'
-                }}
-              >
-                Actions
-              </TableCell>
+              <TableCell>Employee</TableCell>
+              <TableCell>Clock In</TableCell>
+              <TableCell>Clock Out</TableCell>
+              <TableCell>Duration</TableCell>
+              <TableCell>Earnings (ZAR)</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} sx={{ textAlign: 'center', py: 8 }}>
-                  Loading...
-                </TableCell>
+                <TableCell colSpan={6} align="center">Loading...</TableCell>
               </TableRow>
             ) : entries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} sx={{ textAlign: 'center', py: 8 }}>
-                  <Typography color="textSecondary">
-                    No time entries found. Clock in an employee to get started.
-                  </Typography>
+                <TableCell colSpan={6} align="center">
+                  No time entries found
                 </TableCell>
               </TableRow>
             ) : (
               entries.map((entry) => (
-                <TableRow
-                  key={entry.id}
-                  sx={{
-                    '&:last-child td': { border: 0 },
-                    '&:hover': { backgroundColor: 'action.hover' },
-                  }}
-                >
+                <TableRow key={entry.id}>
                   <TableCell>{entry.employeeName}</TableCell>
                   <TableCell>
                     {new Date(entry.clockIn).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    {entry.clockOut
-                      ? new Date(entry.clockOut).toLocaleString()
-                      : '-'
+                    {entry.clockOut ?
+                      new Date(entry.clockOut).toLocaleString() :
+                      'Currently Working'
                     }
+                  </TableCell>
+                  <TableCell>
+                    {formatDuration(entry.clockIn, entry.clockOut)}
                   </TableCell>
                   <TableCell>
                     R{entry.earnings.toFixed(2)}
@@ -252,16 +227,9 @@ export default function TimeEntries() {
                     {!entry.clockOut && (
                       <Button
                         variant="contained"
-                        color="primary"
                         size="small"
                         onClick={() => handleClockOut(entry.id)}
-                        sx={{
-                          textTransform: 'none',
-                          boxShadow: 'none',
-                          '&:hover': {
-                            boxShadow: 'none',
-                          }
-                        }}
+                        startIcon={<AccessTime />}
                       >
                         Clock Out
                       </Button>
@@ -274,52 +242,40 @@ export default function TimeEntries() {
         </Table>
       </TableContainer>
 
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Clock In Employee</DialogTitle>
         <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            <FormControl fullWidth>
-              <InputLabel>Select Employee</InputLabel>
-              <Select
-                value={selectedEmployee}
-                label="Select Employee"
-                onChange={(e) => setSelectedEmployee(Number(e.target.value))}
-              >
-                <MenuItem value={0} disabled>
-                  Select an employee
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Select Employee</InputLabel>
+            <Select
+              value={selectedEmployee}
+              label="Select Employee"
+              onChange={(e) => setSelectedEmployee(Number(e.target.value))}
+            >
+              <MenuItem value={0} disabled>
+                Select an employee
+              </MenuItem>
+              {employees.map((employee) => (
+                <MenuItem
+                  key={employee.id}
+                  value={employee.id}
+                  disabled={isAlreadyClockedIn(employee.id)}
+                >
+                  {`${employee.name} ${employee.surname}`}
+                  {isAlreadyClockedIn(employee.id) && ' (Already clocked in)'}
                 </MenuItem>
-                {employees.map((employee) => (
-                  <MenuItem key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
+              ))}
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => setOpen(false)}
-            sx={{ textTransform: 'none' }}
-          >
+          <Button onClick={() => setOpen(false)}>
             Cancel
           </Button>
           <Button
             variant="contained"
             onClick={handleClockIn}
             disabled={!selectedEmployee}
-            sx={{
-              textTransform: 'none',
-              boxShadow: 'none',
-              '&:hover': {
-                boxShadow: 'none',
-              }
-            }}
           >
             Clock In
           </Button>

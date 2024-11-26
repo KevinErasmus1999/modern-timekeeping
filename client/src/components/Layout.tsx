@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { Settings as SettingsIcon } from '@mui/icons-material';
 import {
   Box,
   Drawer,
@@ -27,7 +28,8 @@ const menuItems = [
   { text: 'Dashboard', Icon: Dashboard, path: '/' },
   { text: 'Employees', Icon: People, path: '/employees' },
   { text: 'Time Entries', Icon: AccessTime, path: '/time-entries' },
-  { text: 'Shops', Icon: StoreIcon, path: '/shops' }
+  { text: 'Shops', Icon: StoreIcon, path: '/shops' },
+  { text: 'Settings', Icon: SettingsIcon, path: '/settings' }
 ];
 
 const Layout = () => {
