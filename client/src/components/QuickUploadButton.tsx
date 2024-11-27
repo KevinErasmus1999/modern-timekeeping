@@ -1,14 +1,13 @@
 import React, { useRef, useState } from 'react';
 import {
   IconButton,
-  Button,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Typography,
+  Button,
   Box,
-  LinearProgress,
+  Typography,
   Alert
 } from '@mui/material';
 import { CloudUpload, Close } from '@mui/icons-material';
@@ -23,21 +22,14 @@ export default function QuickUploadButton({ employeeId, onUploadComplete, size =
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files || []);
-    setFiles(prev => [...prev, ...selectedFiles]);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handleUpload = async () => {
+    if (!files.length) return;
+
     try {
       setUploading(true);
-      setError('');
       const formData = new FormData();
       files.forEach(file => {
         formData.append('documents', file);
@@ -58,31 +50,26 @@ export default function QuickUploadButton({ employeeId, onUploadComplete, size =
       setOpen(false);
       if (onUploadComplete) onUploadComplete();
     } catch (error) {
-      setError('Failed to upload documents');
+      setError('Failed to upload files');
     } finally {
       setUploading(false);
     }
   };
 
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
   return (
     <>
-      <IconButton
-        onClick={() => setOpen(true)}
-        size={size}
-        color="primary"
-        title="Quick Upload"
-      >
+      <IconButton onClick={() => setOpen(true)} size={size}>
         <CloudUpload />
       </IconButton>
 
       <Dialog open={open} onClose={() => !uploading && setOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Quick Document Upload</DialogTitle>
+        <DialogTitle>Upload Documents</DialogTitle>
         <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
 
           <Box
             sx={{
@@ -90,28 +77,21 @@ export default function QuickUploadButton({ employeeId, onUploadComplete, size =
               borderColor: 'divider',
               borderRadius: 1,
               p: 3,
-              textAlign: 'center',
               mb: 2,
-              cursor: 'pointer',
-              '&:hover': {
-                borderColor: 'primary.main',
-                bgcolor: 'action.hover'
-              }
+              textAlign: 'center',
+              cursor: 'pointer'
             }}
             onClick={() => fileInputRef.current?.click()}
           >
             <input
               type="file"
               ref={fileInputRef}
-              style={{ display: 'none' }}
-              onChange={handleFileSelect}
+              hidden
               multiple
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              onChange={(e) => e.target.files && setFiles(Array.from(e.target.files))}
             />
             <CloudUpload sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-            <Typography>
-              Drop files here or click to browse
-            </Typography>
+            <Typography>Drop files here or click to browse</Typography>
           </Box>
 
           {files.map((file, index) => (
@@ -121,18 +101,16 @@ export default function QuickUploadButton({ employeeId, onUploadComplete, size =
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                mb: 1,
                 p: 1,
-                bgcolor: 'background.default',
+                mb: 1,
+                bgcolor: 'background.paper',
                 borderRadius: 1
               }}
             >
-              <Typography noWrap sx={{ maxWidth: '80%' }}>
-                {file.name}
-              </Typography>
+              <Typography noWrap>{file.name}</Typography>
               <IconButton
                 size="small"
-                onClick={() => removeFile(index)}
+                onClick={() => setFiles(files.filter((_, i) => i !== index))}
                 disabled={uploading}
               >
                 <Close />
@@ -141,16 +119,13 @@ export default function QuickUploadButton({ employeeId, onUploadComplete, size =
           ))}
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => setOpen(false)}
-            disabled={uploading}
-          >
+          <Button onClick={() => setOpen(false)} disabled={uploading}>
             Cancel
           </Button>
           <Button
             onClick={handleUpload}
             variant="contained"
-            disabled={files.length === 0 || uploading}
+            disabled={uploading || !files.length}
           >
             {uploading ? 'Uploading...' : 'Upload'}
           </Button>

@@ -1,200 +1,250 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Grid,
-  Paper,
-  Typography,
-  CircularProgress,
   Card,
   CardContent,
-  IconButton,
-  Link
+  CardHeader,
+  Typography,
+  Grid,
+  CircularProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import {
-  People,
-  Store,
-  AccessTime,
-  Visibility
+  Store as StoreIcon,
+  Group as GroupIcon,
+  Timer as TimerIcon,
+  AttachMoney as MoneyIcon,
 } from '@mui/icons-material';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  Legend
-} from 'recharts';
-import { useNavigate } from 'react-router-dom';
+import { format } from 'date-fns';
+import DashboardFilter, { DateRange } from '../components/DashboardFilter';
 
-interface DashboardStats {
-  shops: {
-    id: number;
-    name: string;
-    totalEmployees: number;
-    clockedInEmployees: number;
-    averageWage: number;
-    monthlyHours: {
-      date: string;
-      hours: number;
-      wages: number;
-    }[];
-  }[];
+interface DashboardData {
   overallStats: {
     totalShops: number;
     totalEmployees: number;
     clockedInEmployees: number;
+    overtimeHours: number;
+    overtimeAmount: number;
     averageHourlyWage: number;
   };
-  wageDistribution: {
-    range: string;
-    count: number;
-  }[];
+  lateEmployees: Array<{
+    id: number;
+    name: string;
+    minutesLate: number;
+    shop: string;
+  }>;
 }
 
-export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+const DashboardCard = ({
+  icon: Icon,
+  title,
+  value,
+  subValue
+}: {
+  icon: any;
+  title: string;
+  value: string | number;
+  subValue?: string;
+}) => (
+  <Card sx={{
+    height: '100%',
+    boxShadow: 'none',
+    border: '1px solid',
+    borderColor: 'divider',
+  }}>
+    <CardContent sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ mr: 2 }}>
+          <Icon sx={{ fontSize: 40, color: 'primary.main' }} />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight="bold">
+            {value}
+          </Typography>
+          <Typography color="text.secondary">
+            {title}
+          </Typography>
+          {subValue && (
+            <Typography variant="body2" color="primary">
+              {subValue}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    </CardContent>
+  </Card>
+);
+
+const Dashboard = () => {
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange>({
+    start: new Date(),
+    end: new Date()
+  });
+
+  const fetchDashboardData = async (range: DateRange) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(
+        `/api/dashboard?start=${format(range.start, 'yyyy-MM-dd')}&end=${format(range.end, 'yyyy-MM-dd')}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const jsonData = await response.json();
+      setData(jsonData);
+    } catch (err) {
+      console.error('Dashboard error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/dashboard', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+    fetchDashboardData(dateRange);
+  }, [dateRange]);
 
-        const data = await response.json();
-        setStats(data);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const handleDateRangeChange = (range: DateRange) => {
+    setDateRange(range);
+  };
 
-    fetchData();
-    const interval = setInterval(fetchData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, []);
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: 'ZAR'
+    }).format(amount);
+  };
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" height="80vh">
+      <Box display="flex" justifyContent="center" alignItems="center" height="400px">
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!stats) return null;
+  if (error) {
+    return (
+      <Box p={3}>
+        <Typography color="error">{error}</Typography>
+      </Box>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Box p={3}>
+        <Typography>No dashboard data available</Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Overall Stats */}
-      <Grid container spacing={3} mb={4}>
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', height: '100%' }}>
-            <Store sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
-            <Box>
-              <Typography variant="h4" fontWeight="bold">
-                {stats.overallStats.totalShops}
-              </Typography>
-              <Typography color="textSecondary">Total Shops</Typography>
-            </Box>
-          </Paper>
-        </Grid>
+      <DashboardFilter onDateRangeChange={handleDateRangeChange} />
 
+      <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', height: '100%' }}>
-            <People sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
-            <Box>
-              <Typography variant="h4" fontWeight="bold">
-                {stats.overallStats.totalEmployees}
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {stats.overallStats.clockedInEmployees} Currently Working
-              </Typography>
-            </Box>
-          </Paper>
+          <DashboardCard
+            icon={StoreIcon}
+            title="Total Shops"
+            value={data.overallStats.totalShops}
+          />
         </Grid>
-
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', height: '100%' }}>
-            <AccessTime sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
-            <Box>
-              <Typography variant="h4" fontWeight="bold">
-                R{stats.overallStats.averageHourlyWage}
-              </Typography>
-              <Typography color="textSecondary">Avg. Hourly Rate</Typography>
-            </Box>
-          </Paper>
+          <DashboardCard
+            icon={GroupIcon}
+            title="Total Employees"
+            value={data.overallStats.totalEmployees}
+            subValue={`${data.overallStats.clockedInEmployees} Currently Working`}
+          />
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <DashboardCard
+            icon={TimerIcon}
+            title="Overtime Hours"
+            value={data.overallStats.overtimeHours}
+            subValue={formatCurrency(data.overallStats.overtimeAmount)}
+          />
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <DashboardCard
+            icon={MoneyIcon}
+            title="Avg. Hourly Rate"
+            value={formatCurrency(data.overallStats.averageHourlyWage)}
+          />
         </Grid>
       </Grid>
 
-      {/* Wage Distribution Chart */}
-      <Grid container spacing={3} mb={4}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>Wage Distribution</Typography>
-            <Box sx={{ height: 300 }}>
-              <ResponsiveContainer>
-                <BarChart data={stats.wageDistribution}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="range" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#8884d8" />
-                </BarChart>
-              </ResponsiveContainer>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Shop Cards */}
-      <Grid container spacing={3}>
-        {stats.shops.map((shop) => (
-          <Grid item xs={12} md={4} key={shop.id}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                  <Typography variant="h6" gutterBottom>
-                    {shop.name}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={() => navigate(`/shops/${shop.id}`)}
-                  >
-                    <Visibility />
-                  </IconButton>
-                </Box>
-
-                <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Employees: {shop.clockedInEmployees}/{shop.totalEmployees} Active
-                </Typography>
-
-                <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Avg. Wage: R{shop.averageWage}/hr
-                </Typography>
-
-                <Box sx={{ height: 200, mt: 2 }}>
-                  <ResponsiveContainer>
-                    <LineChart data={shop.monthlyHours}>
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="hours" stroke="#8884d8" />
-                      <Line type="monotone" dataKey="wages" stroke="#82ca9d" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      <Card sx={{
+        boxShadow: 'none',
+        border: '1px solid',
+        borderColor: 'divider'
+      }}>
+        <CardHeader
+          title="Late Employees Today"
+          sx={{
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'grey.50'
+          }}
+        />
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Employee Name</TableCell>
+                <TableCell>Shop</TableCell>
+                <TableCell>Late Duration</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.lateEmployees.length > 0 ? (
+                data.lateEmployees.map((employee) => (
+                  <TableRow key={employee.id}>
+                    <TableCell>{employee.name}</TableCell>
+                    <TableCell>{employee.shop}</TableCell>
+                    <TableCell sx={{ color: 'error.main' }}>
+                      {employee.minutesLate} minutes
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={3} align="center">
+                    No late employees today
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Card>
     </Box>
   );
-}
+};
+
+export default Dashboard;

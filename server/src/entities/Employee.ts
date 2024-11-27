@@ -1,6 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn } from "typeorm";
-import { TimeEntry } from "./TimeEntry";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany } from "typeorm";
 import { Shop } from "./Shop";
+import { TimeEntry } from "./TimeEntry";
 
 @Entity("employees")
 export class Employee {
@@ -32,22 +32,16 @@ export class Employee {
     isActive!: boolean;
 
     @Column({ nullable: true })
-    shopId!: number;
-
-    @Column("simple-json", { nullable: true })
-    additionalFields!: Record<string, string>;
+    shopId?: number;
 
     @Column("simple-array", { nullable: true })
-    documents!: string[];
+    documents?: string[];
 
-    @CreateDateColumn()
-    createdAt!: Date;
+    @Column("simple-json", { nullable: true })
+    additionalFields?: Record<string, string>;
 
-    @UpdateDateColumn()
-    updatedAt!: Date;
-
-    @ManyToOne(() => Shop, shop => shop.employees)
-    shop!: Shop;
+    @ManyToOne(() => Shop, shop => shop.employees, { nullable: true })
+    shop?: Shop;
 
     @OneToMany(() => TimeEntry, timeEntry => timeEntry.employee)
     timeEntries!: TimeEntry[];

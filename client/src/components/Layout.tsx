@@ -2,6 +2,8 @@ import React from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Settings as SettingsIcon } from '@mui/icons-material';
+import { Assessment as ReportsIcon } from '@mui/icons-material';
+
 import {
   Box,
   Drawer,
@@ -29,7 +31,8 @@ const menuItems = [
   { text: 'Employees', Icon: People, path: '/employees' },
   { text: 'Time Entries', Icon: AccessTime, path: '/time-entries' },
   { text: 'Shops', Icon: StoreIcon, path: '/shops' },
-  { text: 'Settings', Icon: SettingsIcon, path: '/settings' }
+  { text: 'Settings', Icon: SettingsIcon, path: '/settings' },
+  { text: 'Reports', Icon: ReportsIcon, path: '/reports' }
 ];
 
 const Layout = () => {
@@ -51,10 +54,8 @@ const Layout = () => {
         }}
       >
         <Toolbar sx={{ px: 2 }}>
-          <Typography variant="h6" component="div" sx={{ color: 'white' }}>
-            ZAFinance
-          </Typography>
-        </Toolbar>
+  <img src="/logo.svg" alt="ZAFinance" style={{ height: 40 }} />
+</Toolbar>
         <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.12)' }} />
         <Box sx={{ overflow: 'auto' }}>
           <List>

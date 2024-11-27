@@ -9,7 +9,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Alert,
+  Alert
 } from '@mui/material';
 
 interface Shop {
@@ -34,8 +34,8 @@ export default function AssignShopDialog({
 }: AssignShopDialogProps) {
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<number>(currentShopId || 0);
-  const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -65,7 +65,7 @@ export default function AssignShopDialog({
   const handleAssign = async () => {
     try {
       setLoading(true);
-      setError('');
+      setError(null);
 
       const token = localStorage.getItem('token');
       const response = await fetch(`/api/employees/${employeeId}/assign-shop`, {
@@ -77,9 +77,13 @@ export default function AssignShopDialog({
         body: JSON.stringify({ shopId: selectedShop || null })
       });
 
-      if (!response.ok) throw new Error('Failed to assign shop');
+      if (!response.ok) {
+        throw new Error('Failed to assign shop');
+      }
 
-      if (onAssigned) onAssigned();
+      if (onAssigned) {
+        await onAssigned();
+      }
       onClose();
     } catch (error) {
       setError('Failed to assign shop');
@@ -92,7 +96,11 @@ export default function AssignShopDialog({
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Assign to Shop</DialogTitle>
       <DialogContent>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <FormControl fullWidth sx={{ mt: 2 }}>
           <InputLabel>Select Shop</InputLabel>
           <Select
@@ -110,7 +118,9 @@ export default function AssignShopDialog({
         </FormControl>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose} disabled={loading}>
+          Cancel
+        </Button>
         <Button
           onClick={handleAssign}
           variant="contained"

@@ -6,6 +6,7 @@ import Employees from '../pages/Employees';
 import TimeEntries from '../pages/TimeEntries';
 import Shops from '../pages/Shops';
 import Settings from '../pages/Settings';
+import Reports from '../pages/Reports';
 import Login from '../pages/Login';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -30,6 +31,7 @@ const AppRoutes = () => {
         <Route path="time-entries" element={<TimeEntries />} />
         <Route path="shops" element={<Shops />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="reports" element={<Reports />} />
       </Route>
     </Routes>
   );

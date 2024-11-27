@@ -62,7 +62,7 @@ export default function Employees() {
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [assignShopOpen, setAssignShopOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -109,11 +109,66 @@ export default function Employees() {
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee);
     setFormData({
-      ...employee,
+      name: employee.name,
+      surname: employee.surname,
+      email: employee.email,
+      cellNumber: employee.cellNumber,
+      idNumber: employee.idNumber,
+      gender: employee.gender,
+      hourlyRate: employee.hourlyRate,
+      isActive: employee.isActive,
       documents: [],
       additionalFields: employee.additionalFields || {}
     });
     setOpen(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+
+    try {
+      setSaving(true);
+      const token = localStorage.getItem('token');
+      const url = editingEmployee
+        ? `/api/employees/${editingEmployee.id}`
+        : '/api/employees';
+
+      const formDataToSend = new FormData();
+      Object.entries(formData).forEach(([key, value]) => {
+        if (key !== 'documents' && key !== 'additionalFields') {
+          formDataToSend.append(key, value.toString());
+        }
+      });
+
+      if (formData.additionalFields) {
+        formDataToSend.append('additionalFields', JSON.stringify(formData.additionalFields));
+      }
+
+      formData.documents.forEach(doc => {
+        formDataToSend.append('documents', doc);
+      });
+
+      const response = await fetch(url, {
+        method: editingEmployee ? 'PUT' : 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formDataToSend
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save employee');
+      }
+
+      await fetchEmployees();
+      setOpen(false);
+      setEditingEmployee(null);
+      setFormData(initialFormData);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to save employee');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -234,16 +289,16 @@ export default function Employees() {
                       size="small"
                     />
 
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setSelectedEmployee(employee);
-                        setAssignShopOpen(true);
-                      }}
-                      sx={{ mr: 1 }}
-                    >
-                      <Store />
-                    </IconButton>
+<IconButton
+  size="small"
+  onClick={() => {
+    setSelectedEmployee(employee);
+    setAssignShopOpen(true);
+  }}
+  sx={{ mr: 1 }}
+>
+  <Store />
+</IconButton>
 
                     <IconButton
                       size="small"
@@ -317,4 +372,16 @@ export default function Employees() {
 />
     </Box>
   );
+  {selectedEmployee && (
+    <AssignShopDialog
+      open={assignShopOpen}
+      onClose={() => {
+        setAssignShopOpen(false);
+        setSelectedEmployee(null);
+      }}
+      employeeId={selectedEmployee.id}
+      currentShopId={selectedEmployee.shopId}
+      onAssigned={fetchEmployees}
+    />
+  )}
 }

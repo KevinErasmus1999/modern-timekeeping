@@ -3,24 +3,97 @@ import { AppDataSource } from '../database';
 import { Employee } from '../entities/Employee';
 import { TimeEntry } from '../entities/TimeEntry';
 import { Shop } from '../entities/Shop';
+import { Settings } from '../entities/Settings';
 import { auth } from '../middleware/auth';
-import { IsNull } from 'typeorm';
+import { IsNull, Between, MoreThan } from 'typeorm';
+import { startOfDay, endOfDay, parseISO, differenceInMinutes } from 'date-fns';
 
 const router = Router();
 
 router.get('/', auth, async (req, res) => {
     try {
-        const [shops, employees, timeEntries] = await Promise.all([
+        // Get date range from query parameters
+        const startDate = req.query.start ?
+            startOfDay(parseISO(req.query.start as string)) :
+            startOfDay(new Date());
+
+        const endDate = req.query.end ?
+            endOfDay(parseISO(req.query.end as string)) :
+            endOfDay(new Date());
+
+        // Get settings for work hours
+        const settings = await AppDataSource.getRepository(Settings).findOne({
+            where: { id: 1 }
+        });
+
+        if (!settings) {
+            throw new Error('System settings not found');
+        }
+
+        // Parse work start time for late calculation
+        const [startHour, startMinute] = settings.workDayStartTime.split(':').map(Number);
+        const workStartTime = new Date(startDate);
+        workStartTime.setHours(startHour, startMinute, 0, 0);
+
+        // Fetch all required data
+        const [shops, employees, timeEntries, overtimeEntries] = await Promise.all([
             AppDataSource.getRepository(Shop).find(),
-            AppDataSource.getRepository(Employee).find({ relations: ['shop'] }),
+            AppDataSource.getRepository(Employee).find({
+                relations: ['shop']
+            }),
             AppDataSource.getRepository(TimeEntry).find({
-                where: { clockOut: IsNull() },
+                where: {
+                    clockIn: Between(startDate, endDate),
+                    clockOut: IsNull()
+                },
+                relations: ['employee', 'employee.shop']
+            }),
+            // Fetch completed entries for overtime calculation
+            AppDataSource.getRepository(TimeEntry).find({
+                where: {
+                    clockIn: Between(startDate, endDate),
+                    clockOut: MoreThan(workStartTime)
+                },
                 relations: ['employee']
             })
         ]);
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Calculate overtime
+        let totalOvertimeHours = 0;
+        let totalOvertimeAmount = 0;
+
+        overtimeEntries.forEach(entry => {
+            if (entry.clockOut) {
+                const clockOut = new Date(entry.clockOut);
+                const expectedEndTime = new Date(entry.clockIn);
+                expectedEndTime.setHours(startHour + 9); // Assuming 9-hour workday
+
+                if (clockOut > expectedEndTime) {
+                    const overtimeMinutes = differenceInMinutes(clockOut, expectedEndTime);
+                    const overtimeHours = overtimeMinutes / 60;
+                    totalOvertimeHours += overtimeHours;
+                    totalOvertimeAmount += (overtimeHours * entry.employee.hourlyRate * settings.overtimeRate);
+                }
+            }
+        });
+
+        // Calculate late employees
+        const lateEmployees = timeEntries
+            .filter(entry => {
+                const clockInTime = new Date(entry.clockIn);
+                const entryWorkStartTime = new Date(clockInTime);
+                entryWorkStartTime.setHours(startHour, startMinute, 0, 0);
+                return clockInTime > entryWorkStartTime;
+            })
+            .map(entry => ({
+                id: entry.employee.id,
+                name: `${entry.employee.name} ${entry.employee.surname}`,
+                shop: entry.employee.shop?.name || 'Unassigned',
+                minutesLate: differenceInMinutes(
+                    new Date(entry.clockIn),
+                    new Date(entry.clockIn).setHours(startHour, startMinute, 0, 0)
+                )
+            }));
 
         // Calculate shop statistics
         const shopStats = await Promise.all(shops.map(async (shop) => {
@@ -28,24 +101,6 @@ router.get('/', auth, async (req, res) => {
             const clockedInEmployees = timeEntries.filter(entry =>
                 shopEmployees.some(emp => emp.id === entry.employee.id)
             );
-
-            // Get monthly hours using query builder
-            const monthlyHours = await AppDataSource
-                .createQueryBuilder()
-                .select([
-                    "DATE(timeEntry.clockIn) as date",
-                    "COUNT(DISTINCT employee.id) as employeeCount",
-                    "SUM(CASE WHEN timeEntry.clockOut IS NOT NULL THEN ROUND((julianday(timeEntry.clockOut) - julianday(timeEntry.clockIn)) * 24, 2) ELSE 0 END) as hours",
-                    "SUM(timeEntry.earnings) as wages"
-                ])
-                .from(TimeEntry, "timeEntry")
-                .leftJoin("timeEntry.employee", "employee")
-                .where("employee.shopId = :shopId", { shopId: shop.id })
-                .andWhere("timeEntry.clockIn >= :startDate", {
-                    startDate: new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
-                })
-                .groupBy("DATE(timeEntry.clockIn)")
-                .getRawMany();
 
             const averageWage = shopEmployees.length > 0
                 ? Number((shopEmployees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / shopEmployees.length).toFixed(2))
@@ -56,30 +111,8 @@ router.get('/', auth, async (req, res) => {
                 name: shop.name,
                 totalEmployees: shopEmployees.length,
                 clockedInEmployees: clockedInEmployees.length,
-                averageWage,
-                monthlyHours: monthlyHours.map(mh => ({
-                    date: mh.date,
-                    hours: Number(mh.hours) || 0,
-                    wages: Number(mh.wages) || 0,
-                    employeeCount: Number(mh.employeeCount)
-                }))
+                averageWage
             };
-        }));
-
-        // Calculate wage distribution
-        const wageRanges = [
-            { min: 0, max: 50, label: 'R0-R50' },
-            { min: 50, max: 100, label: 'R50-R100' },
-            { min: 100, max: 150, label: 'R100-R150' },
-            { min: 150, max: 200, label: 'R150-R200' },
-            { min: 200, max: null, label: 'R200+' }
-        ];
-
-        const wageDistribution = wageRanges.map(({ min, max, label }) => ({
-            range: label,
-            count: employees.filter(emp =>
-                max ? (emp.hourlyRate >= min && emp.hourlyRate < max) : emp.hourlyRate >= min
-            ).length
         }));
 
         // Calculate overall statistics
@@ -87,6 +120,8 @@ router.get('/', auth, async (req, res) => {
             totalShops: shops.length,
             totalEmployees: employees.length,
             clockedInEmployees: timeEntries.length,
+            overtimeHours: Number(totalOvertimeHours.toFixed(2)),
+            overtimeAmount: Number(totalOvertimeAmount.toFixed(2)),
             averageHourlyWage: employees.length > 0
                 ? Number((employees.reduce((sum, emp) => sum + emp.hourlyRate, 0) / employees.length).toFixed(2))
                 : 0
@@ -95,7 +130,7 @@ router.get('/', auth, async (req, res) => {
         res.json({
             shops: shopStats,
             overallStats,
-            wageDistribution
+            lateEmployees
         });
 
     } catch (error) {

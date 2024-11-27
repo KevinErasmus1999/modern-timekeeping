@@ -44,34 +44,6 @@ interface ReportFilters {
   reportType: 'payroll' | 'attendance' | 'overtime';
 }
 
-interface ReportData {
-  period: {
-    startDate: string;
-    endDate: string;
-  };
-  employees: Array<{
-    id: number;
-    name: string;
-    regularHours: number;
-    overtimeHours: number;
-    totalHours: number;
-    regularPay: number;
-    overtimePay: number;
-    totalPay: number;
-    daysPresent?: number;
-    daysAbsent?: number;
-    lateArrivals?: number;
-  }>;
-  totals: {
-    regularHours: number;
-    overtimeHours: number;
-    totalHours: number;
-    regularPay: number;
-    overtimePay: number;
-    totalPay: number;
-  };
-}
-
 export default function Reports() {
   const [filters, setFilters] = useState<ReportFilters>({
     startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -83,7 +55,7 @@ export default function Reports() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [reportData, setReportData] = useState<any>(null);
 
   useEffect(() => {
     fetchShopsAndEmployees();
@@ -134,9 +106,7 @@ export default function Reports() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate report');
-      }
+      if (!response.ok) throw new Error('Failed to generate report');
 
       const data = await response.json();
       setReportData(data);
@@ -320,124 +290,41 @@ export default function Reports() {
         </Box>
       ) : reportData ? (
         <Paper sx={{ p: 3 }}>
-          {filters.reportType === 'payroll' && (
-            <PayrollReport data={reportData} />
-          )}
-          {filters.reportType === 'attendance' && (
-            <AttendanceReport data={reportData} />
-          )}
-          {filters.reportType === 'overtime' && (
-            <OvertimeReport data={reportData} />
-          )}
+          <TableContainer>
+            <Typography variant="h6" gutterBottom>
+              Report Results
+            </Typography>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Employee</TableCell>
+                  <TableCell align="right">Regular Hours</TableCell>
+                  <TableCell align="right">Overtime Hours</TableCell>
+                  <TableCell align="right">Total Pay</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {reportData.employees?.map((row: any) => (
+                  <TableRow key={row.id}>
+                    <TableCell>{row.name}</TableCell>
+                    <TableCell align="right">{row.regularHours?.toFixed(2)}</TableCell>
+                    <TableCell align="right">{row.overtimeHours?.toFixed(2)}</TableCell>
+                    <TableCell align="right">R{row.totalPay?.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+                {reportData.totals && (
+                  <TableRow>
+                    <TableCell><strong>Totals</strong></TableCell>
+                    <TableCell align="right"><strong>{reportData.totals.regularHours?.toFixed(2)}</strong></TableCell>
+                    <TableCell align="right"><strong>{reportData.totals.overtimeHours?.toFixed(2)}</strong></TableCell>
+                    <TableCell align="right"><strong>R{reportData.totals.totalPay?.toFixed(2)}</strong></TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       ) : null}
     </Box>
-  );
-}
-
-// Report Components
-function PayrollReport({ data }: { data: ReportData }) {
-  return (
-    <TableContainer>
-      <Typography variant="h6" gutterBottom>
-        Payroll Report ({format(new Date(data.period.startDate), 'MMM d, yyyy')} - {format(new Date(data.period.endDate), 'MMM d, yyyy')})
-      </Typography>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Employee</TableCell>
-            <TableCell align="right">Regular Hours</TableCell>
-            <TableCell align="right">Overtime Hours</TableCell>
-            <TableCell align="right">Regular Pay</TableCell>
-            <TableCell align="right">Overtime Pay</TableCell>
-            <TableCell align="right">Total Pay</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.employees.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.name}</TableCell>
-              <TableCell align="right">{row.regularHours.toFixed(2)}</TableCell>
-              <TableCell align="right">{row.overtimeHours.toFixed(2)}</TableCell>
-              <TableCell align="right">R{row.regularPay.toFixed(2)}</TableCell>
-              <TableCell align="right">R{row.overtimePay.toFixed(2)}</TableCell>
-              <TableCell align="right">R{row.totalPay.toFixed(2)}</TableCell>
-            </TableRow>
-          ))}
-          <TableRow>
-            <TableCell colSpan={3}><strong>Totals:</strong></TableCell>
-            <TableCell align="right"><strong>R{data.totals.regularPay.toFixed(2)}</strong></TableCell>
-            <TableCell align="right"><strong>R{data.totals.overtimePay.toFixed(2)}</strong></TableCell>
-            <TableCell align="right"><strong>R{data.totals.totalPay.toFixed(2)}</strong></TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-}
-
-function AttendanceReport({ data }: { data: ReportData }) {
-  return (
-    <TableContainer>
-      <Typography variant="h6" gutterBottom>
-        Attendance Report ({format(new Date(data.period.startDate), 'MMM d, yyyy')} - {format(new Date(data.period.endDate), 'MMM d, yyyy')})
-      </Typography>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Employee</TableCell>
-            <TableCell align="right">Days Present</TableCell>
-            <TableCell align="right">Days Absent</TableCell>
-            <TableCell align="right">Late Arrivals</TableCell>
-            <TableCell align="right">Total Hours</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.employees.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.name}</TableCell>
-              <TableCell align="right">{row.daysPresent}</TableCell>
-              <TableCell align="right">{row.daysAbsent}</TableCell>
-              <TableCell align="right">{row.lateArrivals}</TableCell>
-              <TableCell align="right">{row.totalHours.toFixed(2)}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-}
-
-function OvertimeReport({ data }: { data: ReportData }) {
-  return (
-    <TableContainer>
-      <Typography variant="h6" gutterBottom>
-        Overtime Report ({format(new Date(data.period.startDate), 'MMM d, yyyy')} - {format(new Date(data.period.endDate), 'MMM d, yyyy')})
-      </Typography>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Employee</TableCell>
-            <TableCell align="right">Regular Hours</TableCell>
-            <TableCell align="right">Overtime Hours</TableCell>
-            <TableCell align="right">Overtime Pay</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.employees.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.name}</TableCell>
-              <TableCell align="right">{row.regularHours.toFixed(2)}</TableCell>
-              <TableCell align="right">{row.overtimeHours.toFixed(2)}</TableCell>
-              <TableCell align="right">R{row.overtimePay.toFixed(2)}</TableCell>
-            </TableRow>
-          ))}
-          <TableRow>
-            <TableCell colSpan={3}><strong>Total Overtime Pay:</strong></TableCell>
-            <TableCell align="right"><strong>R{data.totals.overtimePay.toFixed(2)}</strong></TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </TableContainer>
   );
 }
